@@ -2,9 +2,8 @@
   "use strict";
 
   const STORAGE_KEY = "kfm-v2";
-  const MAX_TARGET = 999;
+  const MAX = 999;
   const PRESETS = [10, 20, 50, 100];
-
   const DEFAULT_RATES = {
     pullups: 8,
     pushups: 12,
@@ -12,23 +11,19 @@
     situps: 20,
     abwheel: 12,
   };
-
   const EXERCISES = [
     { id: "pullups", name: "מתח", color: "#ff7a1a" },
-    { id: "pushups", name: "שכיבות שמיכה", color: "#3ec6b6" },
-    { id: "squats", name: "סקווטים", color: "#e8b84a" },
-    { id: "situps", name: "כפיפות בטן", color: "#ff6b6b" },
-    { id: "abwheel", name: "גלגלת בטן", color: "#9b7dff" },
+    { id: "pushups", name: "שכיבות שמיכה", color: "#ff7a1a" },
+    { id: "squats", name: "סקווטים", color: "#ff7a1a" },
+    { id: "situps", name: "כפיפות בטן", color: "#ff7a1a" },
+    { id: "abwheel", name: "גלגלת בטן", color: "#ff7a1a" },
   ];
-
-  const COMBOS = [
+  const QUICK = [
     { id: "mixed", name: "מעורב", ids: ["pullups", "pushups", "squats", "situps", "abwheel"] },
-    { id: "core", name: "בטן בלבד", ids: ["situps", "abwheel"] },
-    { id: "upper", name: "פלג גוף עליון", ids: ["pullups", "pushups"] },
-    { id: "legs-core", name: "רגליים ובטן", ids: ["squats", "situps", "abwheel"] },
-    { id: "no-pull", name: "בלי מתח", ids: ["pushups", "squats", "situps", "abwheel"] },
+    { id: "core", name: "רק בטן", ids: ["situps", "abwheel"] },
+    { id: "arms", name: "ידיים", ids: ["pullups", "pushups"] },
+    { id: "legs", name: "רגליים ובטן", ids: ["squats", "situps", "abwheel"] },
   ];
-
   const ICONS = {
     pullups:
       '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10h48M12 10V6M52 10V6"/><circle cx="32" cy="24" r="5" fill="currentColor" stroke="none"/><path d="M18 12h8M38 12h8"/><path d="M18 12c1 8 6 11 14 11s13-3 14-11"/><path d="M32 29v9"/><path d="M32 38l-8 16M32 38l8 16"/></svg>',
@@ -45,14 +40,9 @@
   };
 
   let rates = loadRates();
-  const ui = {
-    target: 0,
-    plan: emptyPlan(),
-    picked: "",
-    settings: false,
-  };
+  const ui = { target: 0, plan: empty(), settings: false, quick: "" };
 
-  function emptyPlan() {
+  function empty() {
     const p = {};
     EXERCISES.forEach((e) => (p[e.id] = 0));
     return p;
@@ -60,22 +50,8 @@
   function rate(id) {
     return rates[id] || DEFAULT_RATES[id];
   }
-  function planSum(plan) {
-    return EXERCISES.reduce((s, e) => s + (plan[e.id] || 0), 0);
-  }
-  function evenSplit(ids, target) {
-    const plan = emptyPlan();
-    if (!ids.length || target <= 0) return plan;
-    const base = Math.floor(target / ids.length);
-    let rem = target % ids.length;
-    ids.forEach((id) => {
-      plan[id] = base + (rem > 0 ? 1 : 0);
-      if (rem > 0) rem--;
-    });
-    return plan;
-  }
-  function plansEqual(a, b) {
-    return EXERCISES.every((e) => (a[e.id] || 0) === (b[e.id] || 0));
+  function sum() {
+    return EXERCISES.reduce((s, e) => s + (ui.plan[e.id] || 0), 0);
   }
   function fmt(n) {
     return Number(n).toLocaleString("he-IL");
@@ -83,11 +59,25 @@
   function ils(n) {
     return `<span class="ils">₪${fmt(n)}</span>`;
   }
-  function clampTarget(n) {
-    if (!Number.isFinite(n) || n < 0) return 0;
-    return Math.min(MAX_TARGET, Math.floor(n));
+  function clamp(n) {
+    n = Math.floor(Number(n) || 0);
+    if (n < 0) return 0;
+    return Math.min(MAX, n);
   }
-
+  function evenSplit(ids, target) {
+    const p = empty();
+    if (!ids.length || target <= 0) return p;
+    const base = Math.floor(target / ids.length);
+    let rem = target % ids.length;
+    ids.forEach((id) => {
+      p[id] = base + (rem > 0 ? 1 : 0);
+      if (rem > 0) rem--;
+    });
+    return p;
+  }
+  function plansEqual(a, b) {
+    return EXERCISES.every((e) => (a[e.id] || 0) === (b[e.id] || 0));
+  }
   function loadRates() {
     try {
       const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
@@ -104,126 +94,97 @@
   const root = document.getElementById("app");
   const toastEl = document.getElementById("toast");
 
-  function builtPlans() {
-    const t = ui.target;
-    const list = [];
-    EXERCISES.forEach((e) => {
-      const p = emptyPlan();
-      p[e.id] = t;
-      list.push({ key: "solo-" + e.id, name: e.name + " בלבד", plan: p });
-    });
-    COMBOS.forEach((c) => {
-      list.push({ key: "combo-" + c.id, name: c.name, plan: evenSplit(c.ids, t) });
-    });
-    return list;
+  function syncQuick() {
+    ui.quick = "";
+    if (ui.target < 1) return;
+    const found = QUICK.find((q) => plansEqual(ui.plan, evenSplit(q.ids, ui.target)));
+    if (found) ui.quick = found.id;
   }
 
-  function planDetail(plan) {
-    return EXERCISES.filter((e) => plan[e.id] > 0)
-      .map((e) => `${e.name} ${fmt(plan[e.id] * rate(e.id))}`)
-      .join(" · ");
-  }
-
-  function recCard(item) {
-    const on = item.key === ui.picked ? " on" : "";
-    return `<button class="rcard${on}" data-act="pick" data-key="${item.key}">
-      <div class="hd"><span class="nm">${item.name}</span>${ils(planSum(item.plan))}</div>
-      <div class="det">${planDetail(item.plan)}</div>
+  function tileHTML(e, last) {
+    const n = ui.plan[e.id] || 0;
+    const on = n > 0 ? " on" : "";
+    const wide = last ? " wide" : "";
+    const reps = n * rate(e.id);
+    return `<button type="button" class="tile${on}${wide}" data-act="add-ex" data-id="${e.id}" aria-label="הוסף שקל ל${e.name}">
+      <span class="minus" data-act="sub-ex" data-id="${e.id}" aria-label="הורד שקל מ${e.name}">−</span>
+      <span class="ico">${ICONS[e.id]}</span>
+      <span class="copy">
+        <span class="nm">${e.name}</span>
+        <span class="cap">${rate(e.id)} חזרות = ${ils(1)}</span>
+      </span>
+      <span class="got">
+        <span class="amt">${ils(n)}</span>
+        <span class="reps">${fmt(reps)} ${e.name}</span>
+      </span>
     </button>`;
   }
 
-  function progressHTML() {
-    const sum = planSum(ui.plan);
-    const target = ui.target;
-    const pct = target <= 0 ? 0 : Math.min(100, Math.round((sum / target) * 100));
-    let cls = "mid",
+  function dockHTML() {
+    const s = sum();
+    const t = ui.target;
+    const pct = t <= 0 ? 0 : Math.min(100, Math.round((s / t) * 100));
+    let cls = "idle",
       msg;
-    if (sum === target && target > 0) {
-      cls = "ok";
-      msg = "הגעתם ליעד.";
-    } else if (sum > target) {
+    if (t < 1 && s < 1) {
+      msg = "בוחרים יעד, ואז לוחצים על תרגיל.";
+    } else if (t < 1) {
       cls = "over";
-      msg = `יותר מהיעד ב־${ils(sum - target)} · סה״כ ${ils(sum)}`;
+      msg = `נבחר ${ils(s)} · קודם קובעים יעד`;
+    } else if (s === t) {
+      cls = "ok";
+      msg = "✓  הגעת ליעד!";
+    } else if (s > t) {
+      cls = "over";
+      msg = `נבחר ${ils(s)} מתוך ${ils(t)} · עברת ב-${ils(s - t)}`;
     } else {
-      msg = `עוד ${ils(target - sum)} כדי להגיע ליעד`;
+      cls = "";
+      msg = `נבחר ${ils(s)} מתוך ${ils(t)} · חסר עוד ${ils(t - s)}`;
     }
-    return `<div class="prog-wrap">
-      <div class="prog ${cls}"><i style="width:${pct}%"></i></div>
-      <div class="prog-msg ${cls}">${msg}</div>
+    return `<div class="dock ${cls}" id="dock">
+      <div class="dock-inner">
+        <div class="prog"><i style="width:${pct}%"></i></div>
+        <div class="dock-msg">${msg}</div>
+      </div>
     </div>`;
-  }
-
-  function resultsHTML() {
-    if (ui.target < 1) {
-      return `<p class="empty">מזינים יעד, ומיד מופיעות אפשרויות — תרגיל אחד או קומבינציה.</p>`;
-    }
-    const all = builtPlans();
-    const solos = all.filter((p) => p.key.startsWith("solo-")).map(recCard).join("");
-    const combos = all.filter((p) => p.key.startsWith("combo-")).map(recCard).join("");
-    const rows = EXERCISES.map((e) => {
-      const blocks = ui.plan[e.id] || 0;
-      const reps = blocks * rate(e.id);
-      return `<div class="mix-row">
-        <div class="exico" style="color:${e.color}">${ICONS[e.id]}</div>
-        <div class="mix-meta">
-          <div class="en">${e.name}</div>
-          <div class="rate">${rate(e.id)} חזרות = ${ils(1)}${blocks ? " · " + fmt(reps) + " חזרות" : ""}</div>
-        </div>
-        <div class="mix-ctrl">
-          <button data-act="dec" data-id="${e.id}" ${blocks <= 0 ? "disabled" : ""} aria-label="פחות ${e.name}">−</button>
-          <div class="val">${ils(blocks)}</div>
-          <button data-act="inc" data-id="${e.id}" aria-label="יותר ${e.name}">+</button>
-        </div>
-      </div>`;
-    }).join("");
-    return `
-      <section class="sec">
-        <h2>אפשרויות</h2>
-        <div class="recs">${solos}</div>
-        <h2 style="margin-top:18px">קומבינציות</h2>
-        <div class="recs">${combos}</div>
-      </section>
-      <section class="sec">
-        <h2>קומבינציה משלי</h2>
-        <div class="mix-tools">
-          <button class="btn-soft" data-act="fill-even">פזר שווה</button>
-          <button class="btn-soft" data-act="fill-rest">השלם ליעד</button>
-        </div>
-        <div class="panel">${rows}${progressHTML()}</div>
-      </section>`;
   }
 
   function settingsHTML() {
     const rows = EXERCISES.map((e) => {
       return `<div class="set-row">
-        <div class="exico" style="color:${e.color}">${ICONS[e.id]}</div>
+        <div class="set-ico">${ICONS[e.id]}</div>
         <div class="nm">${e.name}<span class="dim">חזרות עבור ${ils(1)}</span></div>
         <div class="numbox">
-          <button data-act="dec-rate" data-id="${e.id}">−</button>
+          <button type="button" data-act="dec-rate" data-id="${e.id}">−</button>
           <input type="text" inputmode="numeric" pattern="[0-9]*" value="${rate(e.id)}" data-act="rate-input" data-id="${e.id}" aria-label="${e.name}">
-          <button data-act="inc-rate" data-id="${e.id}">+</button>
+          <button type="button" data-act="inc-rate" data-id="${e.id}">+</button>
         </div>
       </div>`;
     }).join("");
-    return `${rows}<button class="linkish" data-act="reset-rates">חזרה לברירת המחדל</button>`;
+    return `<h3>כמה חזרות = ₪1</h3>
+      ${rows}
+      <div class="sheet-actions">
+        <button type="button" data-act="reset-rates">ברירת מחדל</button>
+        <button type="button" class="done" data-act="close-settings">סגור</button>
+      </div>`;
   }
 
   function pageHTML() {
-    const chips = PRESETS.map(
-      (n) => `<button class="chip" data-act="add" data-n="${n}">+${n}</button>`
+    syncQuick();
+    const chips = PRESETS.map((n) => `<button type="button" class="add" data-act="add-target" data-n="${n}">+${n}</button>`).join("");
+    const quick = QUICK.map(
+      (q) =>
+        `<button type="button" class="qchip${ui.quick === q.id ? " on" : ""}" data-act="quick" data-id="${q.id}">${q.name}</button>`
     ).join("");
+    const tiles = EXERCISES.map((e, i) => tileHTML(e, i === EXERCISES.length - 1)).join("");
     return `
       <header class="top">
-        <div class="top-inner">
-          <span style="width:44px;flex:none"></span>
-          <h1>כושר שווה כסף</h1>
-          <button class="icon-btn${ui.settings ? " on" : ""}" data-act="toggle-settings" aria-label="הגדרות" aria-expanded="${ui.settings}">${ICONS.gear}</button>
-        </div>
+        <h1>כושר שווה כסף</h1>
+        <button type="button" class="gear${ui.settings ? " on" : ""}" data-act="open-settings" aria-label="הגדרות">${ICONS.gear}</button>
       </header>
       <div class="wrap">
-        <div class="settings${ui.settings ? " show" : ""}" id="settings">${ui.settings ? settingsHTML() : ""}</div>
         <div class="hero">
-          <p>כמה כסף רוצים להרוויח?</p>
+          <h2>כמה כסף?</h2>
           <div class="amount-field">
             <span class="sym">₪</span>
             <input class="amount-input" type="text" inputmode="numeric" pattern="[0-9]*"
@@ -232,16 +193,16 @@
               aria-label="סכום היעד בשקלים">
           </div>
         </div>
-        <div class="chips">${chips}</div>
-        <p class="hint">כל לחיצה מוסיפה ליעד. אפשר גם להקליד.</p>
-        <button class="btn-reset" data-act="reset">איפוס</button>
-        <div id="results">${resultsHTML()}</div>
-      </div>`;
+        <div class="adds">${chips}</div>
+        <div class="hero-reset"><button type="button" class="reset" data-act="reset">איפוס</button></div>
+        <div class="quick" id="quick">${quick}</div>
+        <div class="grid" id="grid">${tiles}</div>
+      </div>
+      ${dockHTML()}
+      <div class="veil${ui.settings ? " show" : ""}" data-act="close-settings" id="veil"></div>
+      <div class="sheet${ui.settings ? " show" : ""}" id="sheet" role="dialog" aria-label="הגדרות">${ui.settings ? settingsHTML() : ""}</div>`;
   }
 
-  function bindAll() {
-    bind(root);
-  }
   function bind(scope) {
     scope.querySelectorAll("[data-act]").forEach((el) => {
       const act = el.getAttribute("data-act");
@@ -262,159 +223,149 @@
     });
   }
 
-  function refreshResults() {
-    const box = document.getElementById("results");
-    if (!box) return;
-    box.innerHTML = resultsHTML();
-    bind(box);
-    syncPicked();
-  }
-
-  function syncPicked() {
-    const match = builtPlans().find((p) => plansEqual(p.plan, ui.plan));
-    ui.picked = match ? match.key : "";
-    document.querySelectorAll(".rcard").forEach((el) => {
-      el.classList.toggle("on", el.getAttribute("data-key") === ui.picked);
-    });
+  function refreshBoard() {
+    syncQuick();
+    const grid = document.getElementById("grid");
+    const quick = document.getElementById("quick");
+    const dock = document.getElementById("dock");
+    if (grid) {
+      grid.innerHTML = EXERCISES.map((e, i) => tileHTML(e, i === EXERCISES.length - 1)).join("");
+      bind(grid);
+    }
+    if (quick) {
+      quick.innerHTML = QUICK.map(
+        (q) =>
+          `<button type="button" class="qchip${ui.quick === q.id ? " on" : ""}" data-act="quick" data-id="${q.id}">${q.name}</button>`
+      ).join("");
+      bind(quick);
+    }
+    if (dock) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = dockHTML();
+      dock.replaceWith(tmp.firstElementChild);
+    }
   }
 
   function render() {
     root.innerHTML = pageHTML();
-    bindAll();
+    bind(root);
   }
 
   function onType(ev) {
     const raw = ev.currentTarget.value;
-    if (raw === "") {
-      ui.target = 0;
-      ui.picked = "";
-      refreshResults();
-      return;
-    }
-    const n = clampTarget(parseInt(String(raw).replace(/\D/g, ""), 10) || 0);
-    ui.target = n;
-    refreshResults();
+    const next = raw === "" ? 0 : clamp(parseInt(String(raw).replace(/\D/g, ""), 10) || 0);
+    if (next === ui.target) return;
+    ui.target = next;
+    refreshBoard();
   }
   function onTypeBlur(ev) {
-    ui.target = clampTarget(parseInt(String(ev.currentTarget.value).replace(/\D/g, ""), 10) || 0);
-    ev.currentTarget.value = ui.target ? String(ui.target) : "";
-    refreshResults();
-  }
-
-  function setTarget(n, notifyMax) {
-    const next = clampTarget(n);
-    if (notifyMax && n > MAX_TARGET) toast("אפשר עד ₪" + MAX_TARGET);
+    const next = clamp(parseInt(String(ev.currentTarget.value).replace(/\D/g, ""), 10) || 0);
+    ev.currentTarget.value = next ? String(next) : "";
+    if (next === ui.target) return;
     ui.target = next;
-    render();
-    const inp = root.querySelector("[data-act=target-input]");
-    if (inp) inp.blur();
+    refreshBoard();
   }
 
   function onAction(ev) {
     const el = ev.currentTarget;
     const act = el.getAttribute("data-act");
     const id = el.getAttribute("data-id");
+    ev.stopPropagation();
 
-    if (act === "toggle-settings") {
-      ui.settings = !ui.settings;
-      const panel = document.getElementById("settings");
-      const btn = el;
-      panel.classList.toggle("show", ui.settings);
-      btn.classList.toggle("on", ui.settings);
-      btn.setAttribute("aria-expanded", String(ui.settings));
-      if (ui.settings) {
-        panel.innerHTML = settingsHTML();
-        bind(panel);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
-      return;
-    }
-    if (act === "add") {
+    if (act === "add-target") {
       const n = parseInt(el.getAttribute("data-n"), 10) || 0;
-      setTarget((ui.target || 0) + n, true);
+      const next = (ui.target || 0) + n;
+      if (next > MAX) toast("אפשר עד ₪" + MAX);
+      ui.target = clamp(next);
+      const inp = root.querySelector("[data-act=target-input]");
+      if (inp) inp.value = ui.target ? String(ui.target) : "";
+      refreshBoard();
       return;
     }
     if (act === "reset") {
       ui.target = 0;
-      ui.plan = emptyPlan();
-      ui.picked = "";
+      ui.plan = empty();
+      ui.quick = "";
       render();
       return;
     }
-    if (act === "pick") {
-      const key = el.getAttribute("data-key");
-      const found = builtPlans().find((p) => p.key === key);
-      if (!found) return;
-      ui.plan = { ...found.plan };
-      ui.picked = key;
-      refreshResults();
-      const mix = document.querySelector(".sec:last-of-type");
-      if (mix) mix.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (act === "add-ex") {
+      if (ev.target.closest && ev.target.closest('[data-act=sub-ex]')) return;
+      ui.plan[id] = Math.min(MAX, (ui.plan[id] || 0) + 1);
+      refreshBoard();
       return;
     }
-    if (act === "inc") {
-      ui.plan[id] = Math.min(MAX_TARGET, (ui.plan[id] || 0) + 1);
-      refreshResults();
-      return;
-    }
-    if (act === "dec") {
+    if (act === "sub-ex") {
       ui.plan[id] = Math.max(0, (ui.plan[id] || 0) - 1);
-      refreshResults();
+      refreshBoard();
       return;
     }
-    if (act === "fill-even") {
-      ui.plan = evenSplit(EXERCISES.map((e) => e.id), ui.target);
-      refreshResults();
-      return;
-    }
-    if (act === "fill-rest") {
-      const remain = ui.target - planSum(ui.plan);
-      if (remain <= 0) {
-        toast(remain === 0 ? "כבר הגעתם ליעד" : "הסכום כבר מעל היעד");
+    if (act === "quick") {
+      const q = QUICK.find((x) => x.id === id);
+      if (!q) return;
+      if (ui.target < 1) {
+        toast("קודם בוחרים כמה כסף");
         return;
       }
-      let dest = EXERCISES.filter((e) => (ui.plan[e.id] || 0) === 0).map((e) => e.id);
-      if (!dest.length) dest = EXERCISES.map((e) => e.id);
-      const add = evenSplit(dest, remain);
-      dest.forEach((i) => (ui.plan[i] = (ui.plan[i] || 0) + add[i]));
-      refreshResults();
+      ui.plan = evenSplit(q.ids, ui.target);
+      refreshBoard();
+      return;
+    }
+    if (act === "open-settings") {
+      ui.settings = true;
+      const sheet = document.getElementById("sheet");
+      const veil = document.getElementById("veil");
+      const gear = root.querySelector(".gear");
+      sheet.innerHTML = settingsHTML();
+      sheet.classList.add("show");
+      veil.classList.add("show");
+      if (gear) gear.classList.add("on");
+      bind(sheet);
+      return;
+    }
+    if (act === "close-settings") {
+      ui.settings = false;
+      document.getElementById("sheet").classList.remove("show");
+      document.getElementById("veil").classList.remove("show");
+      const gear = root.querySelector(".gear");
+      if (gear) gear.classList.remove("on");
+      refreshBoard();
       return;
     }
     if (act === "dec-rate") {
       rates[id] = Math.max(1, rate(id) - 1);
       saveRates();
-      refreshSettingsAndResults();
+      document.getElementById("sheet").innerHTML = settingsHTML();
+      bind(document.getElementById("sheet"));
+      refreshBoard();
       return;
     }
     if (act === "inc-rate") {
       rates[id] = Math.min(99, rate(id) + 1);
       saveRates();
-      refreshSettingsAndResults();
+      document.getElementById("sheet").innerHTML = settingsHTML();
+      bind(document.getElementById("sheet"));
+      refreshBoard();
       return;
     }
     if (act === "rate-input") {
       const n = parseInt(String(el.value).replace(/\D/g, ""), 10);
       rates[id] = Math.min(99, Math.max(1, n || 1));
       saveRates();
-      refreshSettingsAndResults();
+      document.getElementById("sheet").innerHTML = settingsHTML();
+      bind(document.getElementById("sheet"));
+      refreshBoard();
       return;
     }
     if (act === "reset-rates") {
       rates = { ...DEFAULT_RATES };
       saveRates();
-      refreshSettingsAndResults();
+      document.getElementById("sheet").innerHTML = settingsHTML();
+      bind(document.getElementById("sheet"));
+      refreshBoard();
       toast("התעריפים חזרו לברירת המחדל");
       return;
     }
-  }
-
-  function refreshSettingsAndResults() {
-    const panel = document.getElementById("settings");
-    if (panel && ui.settings) {
-      panel.innerHTML = settingsHTML();
-      bind(panel);
-    }
-    refreshResults();
   }
 
   let toastTimer;
@@ -426,9 +377,18 @@
   }
 
   const params = new URLSearchParams(location.search);
-  if (params.get("n")) ui.target = clampTarget(parseInt(params.get("n"), 10) || 0);
+  if (params.get("n")) ui.target = clamp(params.get("n"));
   if (params.get("settings") === "1") ui.settings = true;
-  if (ui.target > 0) ui.plan = evenSplit(EXERCISES.map((e) => e.id), ui.target);
+  if (params.get("fill")) {
+    const q = QUICK.find((x) => x.id === params.get("fill"));
+    if (q && ui.target > 0) ui.plan = evenSplit(q.ids, ui.target);
+  }
+  if (params.get("plan")) {
+    params.get("plan").split(",").forEach((part) => {
+      const [k, v] = part.split(":");
+      if (k && ui.plan[k] !== undefined) ui.plan[k] = clamp(v);
+    });
+  }
 
   render();
 })();
