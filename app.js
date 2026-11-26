@@ -2,6 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "kfm-v2";
+  const RATES_REV = 6;
   const MAX = 999;
   const PRESETS = [10, 20, 50, 100];
   const DEFAULT_RATES = {
@@ -39,8 +40,6 @@
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H8a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V8c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   };
 
-  let rates = loadRates();
-  const ui = { target: 0, plan: empty(), settings: false, quick: "" };
 
   function empty() {
     const p = {};
@@ -80,23 +79,29 @@
   }
   function loadRates() {
     try {
-      if (!localStorage.getItem("kfm-squats12")) {
-        localStorage.setItem("kfm-squats12", "1");
-        ["kfm-v2", "kfm-v1"].forEach((k) => {
-          const o = JSON.parse(localStorage.getItem(k) || "null");
-          if (o && o.rates && o.rates.squats === 20) { o.rates.squats = 12; localStorage.setItem(k, JSON.stringify(o)); }
-        });
+      let store = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      if (!store || !store.rates) {
+        const old = JSON.parse(localStorage.getItem("kfm-v1") || "null");
+        if (old && old.rates) store = old;
       }
-      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (raw && raw.rates) return { ...DEFAULT_RATES, ...raw.rates };
-      const old = JSON.parse(localStorage.getItem("kfm-v1") || "null");
-      if (old && old.rates) return { ...DEFAULT_RATES, ...old.rates };
+      const r = { ...DEFAULT_RATES, ...((store && store.rates) || {}) };
+      const rev = (store && store.rev) || 0;
+      if (rev < RATES_REV) {
+        // Old factory default was 20 squats per ₪. Move saved copies to 12 once.
+        if (r.squats === 20) r.squats = 12;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ rates: r, rev: RATES_REV }));
+        localStorage.setItem("kfm-squats12", "1");
+      }
+      return r;
     } catch (e) {}
     return { ...DEFAULT_RATES };
   }
   function saveRates() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ rates }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ rates, rev: RATES_REV }));
   }
+
+  let rates = loadRates();
+  const ui = { target: 0, plan: empty(), done: {}, settings: false, quick: "" };
 
   const root = document.getElementById("app");
   const toastEl = document.getElementById("toast");
@@ -127,6 +132,35 @@
     </button>`;
   }
 
+
+  function pruneDone() {
+    EXERCISES.forEach((e) => {
+      if (!(ui.plan[e.id] > 0)) delete ui.done[e.id];
+    });
+  }
+
+  function tasksHTML() {
+    const items = EXERCISES.filter((e) => (ui.plan[e.id] || 0) > 0);
+    if (!items.length) return "";
+    const rows = items
+      .map((e) => {
+        const n = ui.plan[e.id];
+        const reps = n * rate(e.id);
+        const on = ui.done[e.id] ? " done" : "";
+        const mark = ui.done[e.id] ? "✓" : "";
+        return `<button type="button" class="task${on}" data-act="toggle-done" data-id="${e.id}">
+          <span class="chk" aria-hidden="true">${mark}</span>
+          <span class="txt">${fmt(reps)} ${e.name} — ${ils(n)}</span>
+        </button>`;
+      })
+      .join("");
+    return `<section class="tasks" id="tasks">
+      <h2>המשימות שלי</h2>
+      <ul>${rows}</ul>
+      <div class="tasks-total">סה״כ ${ils(sum())}</div>
+    </section>`;
+  }
+
   function dockHTML() {
     const s = sum();
     const t = ui.target;
@@ -134,10 +168,10 @@
     let cls = "idle",
       msg;
     if (t < 1 && s < 1) {
-      msg = "בוחרים יעד, ואז לוחצים על תרגיל.";
+      msg = "בוחרים יעד, או לוחצים על תרגיל.";
     } else if (t < 1) {
-      cls = "over";
-      msg = `נבחר ${ils(s)} · קודם קובעים יעד`;
+      cls = "earn";
+      msg = `סה״כ ${ils(s)}`;
     } else if (s === t) {
       cls = "ok";
       msg = "✓  הגעת ליעד!";
@@ -148,10 +182,14 @@
       cls = "";
       msg = `נבחר ${ils(s)} מתוך ${ils(t)} · חסר עוד ${ils(t - s)}`;
     }
-    return `<div class="dock ${cls}" id="dock">
+    const tasks = tasksHTML();
+    const bar = t >= 1 ? `<div class="prog"><i style="width:${pct}%"></i></div>` : "";
+    const msgHtml = t < 1 && tasks ? "" : `<div class="dock-msg">${msg}</div>`;
+    return `<div class="dock ${cls}${tasks ? " has-tasks" : ""}" id="dock">
       <div class="dock-inner">
-        <div class="prog"><i style="width:${pct}%"></i></div>
-        <div class="dock-msg">${msg}</div>
+        ${tasks}
+        ${bar}
+        ${msgHtml}
       </div>
     </div>`;
   }
@@ -249,13 +287,27 @@
     if (dock) {
       const tmp = document.createElement("div");
       tmp.innerHTML = dockHTML();
-      dock.replaceWith(tmp.firstElementChild);
+      const next = tmp.firstElementChild;
+      dock.replaceWith(next);
+      bind(next);
     }
+    syncDockPad();
+  }
+
+  function syncDockPad() {
+    const dock = document.getElementById("dock");
+    const wrap = document.querySelector(".wrap");
+    if (!dock) return;
+    const h = dock.offsetHeight;
+    document.documentElement.style.setProperty("--dock-h", h + "px");
+    document.documentElement.style.scrollPaddingBottom = h + 16 + "px";
+    if (wrap) wrap.style.paddingBottom = h + 16 + "px";
   }
 
   function render() {
     root.innerHTML = pageHTML();
     bind(root);
+    syncDockPad();
   }
 
   function onType(ev) {
@@ -292,6 +344,7 @@
     if (act === "reset") {
       ui.target = 0;
       ui.plan = empty();
+      ui.done = {};
       ui.quick = "";
       render();
       return;
@@ -299,11 +352,13 @@
     if (act === "add-ex") {
       if (ev.target.closest && ev.target.closest('[data-act=sub-ex]')) return;
       ui.plan[id] = Math.min(MAX, (ui.plan[id] || 0) + 1);
+      pruneDone();
       refreshBoard();
       return;
     }
     if (act === "sub-ex") {
       ui.plan[id] = Math.max(0, (ui.plan[id] || 0) - 1);
+      pruneDone();
       refreshBoard();
       return;
     }
@@ -315,6 +370,13 @@
         return;
       }
       ui.plan = evenSplit(q.ids, ui.target);
+      ui.done = {};
+      refreshBoard();
+      return;
+    }
+    if (act === "toggle-done") {
+      if (!(ui.plan[id] > 0)) return;
+      ui.done[id] = !ui.done[id];
       refreshBoard();
       return;
     }
