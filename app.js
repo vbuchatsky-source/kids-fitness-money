@@ -2,13 +2,13 @@
   "use strict";
 
   const STORAGE_KEY = "kfm-v2";
-  const RATES_REV = 6;
+  const RATES_REV = 7;
   const MAX = 999;
   const PRESETS = [10, 20, 50, 100];
   const DEFAULT_RATES = {
     pullups: 8,
     pushups: 12,
-    squats: 12,
+    squats: 8,
     situps: 20,
     abwheel: 12,
   };
@@ -88,7 +88,7 @@
       const rev = (store && store.rev) || 0;
       if (rev < RATES_REV) {
         // Old factory default was 20 squats per ₪. Move saved copies to 12 once.
-        if (r.squats === 20) r.squats = 12;
+        if (r.squats === 20 || r.squats === 12) r.squats = 8;
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ rates: r, rev: RATES_REV }));
         localStorage.setItem("kfm-squats12", "1");
       }
