@@ -7,7 +7,7 @@
   const DEFAULT_RATES = {
     pullups: 8,
     pushups: 12,
-    squats: 20,
+    squats: 12,
     situps: 20,
     abwheel: 12,
   };
@@ -80,6 +80,13 @@
   }
   function loadRates() {
     try {
+      if (!localStorage.getItem("kfm-squats12")) {
+        localStorage.setItem("kfm-squats12", "1");
+        ["kfm-v2", "kfm-v1"].forEach((k) => {
+          const o = JSON.parse(localStorage.getItem(k) || "null");
+          if (o && o.rates && o.rates.squats === 20) { o.rates.squats = 12; localStorage.setItem(k, JSON.stringify(o)); }
+        });
+      }
       const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (raw && raw.rates) return { ...DEFAULT_RATES, ...raw.rates };
       const old = JSON.parse(localStorage.getItem("kfm-v1") || "null");
